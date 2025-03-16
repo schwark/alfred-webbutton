@@ -20,6 +20,12 @@ wb add <url> [name]
 
 If name is not provided, it will be automatically generated from the URL's domain. You can also add a URL directly from the search results if it looks like a valid URL.
 
+To capture the current URL from Safari's active tab, use `:cap`:
+```
+wb add :cap [name]
+```
+The URL will be automatically captured from Safari's frontmost tab, and if no name is provided, it will be generated from the URL's domain. The current Safari URL is also shown as an autocomplete option when using the add command.
+
 Example:
 ```
 wb add https://github.com github
@@ -27,6 +33,10 @@ wb add https://github.com github
 or simply:
 ```
 wb add https://github.com
+```
+or capture from Safari:
+```
+wb add :cap
 ```
 
 ### Adding Headers to a Web Button
@@ -127,6 +137,7 @@ wb workflow:noprereleases  # Exclude pre-release versions
 ## Features
 
 - Create custom web buttons with specific URLs
+- Capture URLs directly from Safari's active tab
 - Add custom headers for each web button
 - Add cookies for each web button (single or multiple)
 - Add POST bodies for API requests

@@ -2,9 +2,31 @@
 # encoding: utf-8
 
 import sys
+import subprocess
 from workflow import Workflow, ICON_WEB, ICON_ERROR, ICON_INFO
 from common import get_stored_data
 from urllib.parse import urlparse
+
+def get_safari_current_url():
+    """Get the current URL from the active Safari tab"""
+    apple_script = '''
+        tell application "Safari"
+            if frontmost then
+                tell front document
+                    get URL
+                end tell
+            end if
+        end tell
+    '''
+    try:
+        result = subprocess.run(['osascript', '-e', apple_script], 
+                              capture_output=True, 
+                              text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception as e:
+        return None
+    return None
 
 def get_command_parts(query):
     """Parse the command and its arguments"""
@@ -40,22 +62,61 @@ def get_command_suggestions(query):
 def show_add_command(wf, args):
     """Show UI for add command"""
     if len(args) == 0:
+        # Show basic help
         wf.add_item(
             title="wb add <url> [name]",
-            subtitle="Add a new web button",
+            subtitle="Add a new web button (use :cap to capture current Safari URL)",
             valid=False,
             icon=ICON_INFO
         )
+        
+        # Try to get current Safari URL and show as autocomplete option
+        safari_url = get_safari_current_url()
+        if safari_url:
+            parsed = urlparse(safari_url)
+            suggested_name = parsed.netloc.replace("www.", "")
+            wf.add_item(
+                title=f"Capture current Safari URL: {safari_url}",
+                subtitle=f"↵ to add as '{suggested_name}'",
+                autocomplete=f"add {safari_url} {suggested_name}",
+                arg=f"add {safari_url} {suggested_name}",
+                valid=True,
+                icon=ICON_WEB
+            )
     elif len(args) >= 1:
         url = args[0]
         name = args[1] if len(args) > 1 else None
-        wf.add_item(
-            title=f"Add web button: {name if name else url}",
-            subtitle=f"URL: {url}",
-            arg=f"add {url} {name if name else ''}",
-            valid=True,
-            icon=ICON_WEB
-        )
+        
+        if url == ':cap':
+            safari_url = get_safari_current_url()
+            if safari_url:
+                url = safari_url
+                if not name:
+                    # Generate name from URL if not provided
+                    parsed = urlparse(safari_url)
+                    name = parsed.netloc.replace("www.", "")
+                wf.add_item(
+                    title=f"Add web button: {name}",
+                    subtitle=f"URL from Safari: {url}",
+                    arg=f"add {url} {name}",
+                    valid=True,
+                    icon=ICON_WEB
+                )
+            else:
+                wf.add_item(
+                    title="Could not capture Safari URL",
+                    subtitle="Make sure Safari is open and active",
+                    valid=False,
+                    icon=ICON_ERROR
+                )
+        else:
+            wf.add_item(
+                title=f"Add web button: {name if name else url}",
+                subtitle=f"URL: {url}",
+                arg=f"add {url} {name if name else ''}",
+                valid=True,
+                icon=ICON_WEB
+            )
 
 def escape_shell_arg(arg):
     """Escape an argument for shell execution"""
