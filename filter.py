@@ -556,11 +556,71 @@ def show_buttons(wf, query):
     
     # Filter and score buttons based on query
     query_lower = query.lower()
+    matching_buttons = []
     for button in buttons:
         name = button['name'].lower()
         url = button['url'].lower()
         
         if query_lower in name or query_lower in url:
+            matching_buttons.append(button)
+    
+    # If only one button matches, show its commands
+    if len(matching_buttons) == 1:
+        button = matching_buttons[0]
+        # Build subtitle with all button details
+        subtitle_parts = []
+        if button.get('headers'):
+            subtitle_parts.append(f"{len(button['headers'])} headers")
+        if button.get('cookies'):
+            subtitle_parts.append(f"{len(button['cookies'])} cookies")
+        if button.get('body'):
+            subtitle_parts.append("POST body")
+        mode = button.get('mode', 'browser')
+        subtitle_parts.append(f"Mode: {mode}")
+        
+        subtitle = f"{button['url']} ({', '.join(subtitle_parts)})"
+        
+        # Show the main open command with full details
+        wf.add_item(
+            title=f"Open {button['name']}",
+            subtitle=subtitle,
+            arg=f"open {button['name']}",
+            valid=True,
+            icon=fetch_favicon(button['url']) or ICON_WEB
+        )
+        
+        # Show applicable commands
+        wf.add_item(
+            title=f"Add header to {button['name']}",
+            subtitle="Add a header to this button",
+            autocomplete=f"adh {button['name']} ",
+            valid=False,
+            icon=ICON_INFO
+        )
+        wf.add_item(
+            title=f"Add cookie to {button['name']}",
+            subtitle="Add a cookie to this button",
+            autocomplete=f"adc {button['name']} ",
+            valid=False,
+            icon=ICON_INFO
+        )
+        wf.add_item(
+            title=f"Add POST body to {button['name']}",
+            subtitle="Add a POST body to this button",
+            autocomplete=f"adb {button['name']} ",
+            valid=False,
+            icon=ICON_INFO
+        )
+        wf.add_item(
+            title=f"Remove {button['name']}",
+            subtitle="Delete this button",
+            arg=f"remove {button['name']}",
+            valid=True,
+            icon=ICON_ERROR
+        )
+    else:
+        # Show all matching buttons
+        for button in matching_buttons:
             subtitle_parts = []
             if button.get('headers'):
                 subtitle_parts.append(f"{len(button['headers'])} headers")
