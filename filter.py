@@ -320,7 +320,7 @@ def show_remove_command(wf, args):
 
 def show_mode_command(wf, args):
     """Show mode command options"""
-    if len(args) < 2:
+    if len(args) < 1:
         # Show help for mode command
         wf.add_item(
             title='Set Button Mode',
@@ -328,20 +328,9 @@ def show_mode_command(wf, args):
             valid=False,
             icon=ICON_INFO
         )
-        # Show list of buttons to choose from
-        buttons = get_stored_data(wf, 'web_buttons') or []
-        for button in buttons:
-            current_mode = button.get('mode', 'browser')
-            wf.add_item(
-                title=f"{button['name']} ({current_mode})",
-                subtitle=f"Current mode: {current_mode}. Select to change.",
-                autocomplete=f"mode {button['name']} ",
-                valid=False,
-                icon=ICON_WEB if current_mode == 'browser' else ICON_INFO
-            )
         return
 
-    button_name = args[1]
+    button_name = args[0]
     buttons = get_stored_data(wf, 'web_buttons') or []
     button = next((b for b in buttons if b['name'] == button_name), None)
     
@@ -354,40 +343,26 @@ def show_mode_command(wf, args):
         )
         return
 
-    if len(args) < 3:
-        # Show mode options for the selected button
-        current_mode = button.get('mode', 'browser')
-        wf.add_item(
-            title=f'Set Browser Mode for {button_name}',
-            subtitle=f"Currently: {current_mode}",
-            arg=f'mode {button_name} browser',
-            valid=True,
-            icon=ICON_WEB
-        )
-        wf.add_item(
-            title=f'Set Quiet Mode for {button_name}',
-            subtitle=f"Currently: {current_mode}",
-            arg=f'mode {button_name} quiet',
-            valid=True,
-            icon=ICON_INFO
-        )
-    else:
-        mode = args[2].lower()
-        if mode in ['browser', 'quiet']:
-            wf.add_item(
-                title=f'Set Mode for {button_name}: {mode}',
-                subtitle=f"Currently: {button.get('mode', 'browser')}",
-                arg=f'mode {button_name} {mode}',
-                valid=True,
-                icon=ICON_WEB if mode == 'browser' else ICON_INFO
-            )
-        else:
-            wf.add_item(
-                title='Invalid Mode',
-                subtitle="Use 'browser' or 'quiet'",
-                valid=False,
-                icon=ICON_ERROR
-            )
+    # Show mode options for the selected button
+    current_mode = button.get('mode', 'browser')
+    
+    # Browser mode option
+    wf.add_item(
+        title=f"Set mode to: browser",
+        subtitle=f"Currently: {current_mode}",
+        arg=f'mode {button_name} browser',
+        valid=True,
+        icon=ICON_WEB if current_mode == 'browser' else ICON_INFO
+    )
+    
+    # Quiet mode option
+    wf.add_item(
+        title=f"Set mode to: quiet",
+        subtitle=f"Currently: {current_mode}",
+        arg=f'mode {button_name} quiet',
+        valid=True,
+        icon=ICON_INFO if current_mode == 'quiet' else ICON_WEB
+    )
 
 def update_button_usage(wf, button_name):
     """Update the last used timestamp for a button"""
@@ -608,6 +583,13 @@ def show_buttons(wf, query):
             title=f"Add POST body to {button['name']}",
             subtitle="Add a POST body to this button",
             autocomplete=f"adb {button['name']} ",
+            valid=False,
+            icon=ICON_INFO
+        )
+        wf.add_item(
+            title=f"Change mode for {button['name']}",
+            subtitle=f"Current mode: {mode}",
+            autocomplete=f"mode {button['name']} ",
             valid=False,
             icon=ICON_INFO
         )
