@@ -3,9 +3,13 @@
 
 import sys
 import subprocess
-from workflow import Workflow, ICON_WEB, ICON_ERROR, ICON_INFO
-from common import get_stored_data
-from urllib.parse import urlparse
+import time
+import os
+import hashlib
+import re
+from workflow import Workflow, ICON_WEB, ICON_ERROR, ICON_INFO, web
+from common import get_stored_data, save_stored_data
+from urllib.parse import urlparse, urljoin
 
 def get_safari_current_url():
     """Get the current URL from the active Safari tab"""
@@ -385,167 +389,200 @@ def show_mode_command(wf, args):
                 icon=ICON_ERROR
             )
 
-def show_buttons(wf, query):
-    """Show list of buttons matching query"""
-    buttons = get_stored_data(wf, 'web_buttons') or []
-    
-    if query:
-        buttons = wf.filter(query, buttons, lambda x: x['name'])
-    
-    # Show matching buttons
-    found_items = False
-    
-    if len(buttons) == 1:
-        # If exactly one button is found, show all options for that button
-        button = buttons[0]
-        found_items = True
-        
-        # Show button info and open option
-        subtitle_parts = []
-        if button.get('headers'):
-            subtitle_parts.append(f"{len(button['headers'])} headers")
-        if button.get('cookies'):
-            subtitle_parts.append(f"{len(button['cookies'])} cookies")
-        if button.get('body'):
-            subtitle_parts.append("POST")
-        
-        mode = button.get('mode', 'browser')
-        subtitle_parts.append(f"mode: {mode}")
-        
-        subtitle = f"URL: {button['url']}"
-        if subtitle_parts:
-            subtitle += f" ({', '.join(subtitle_parts)})"
-            
-        # Open button option
-        wf.add_item(
-            title=f"Open {button['name']}",
-            subtitle=subtitle,
-            arg=f"open {button['name']}",
-            valid=True,
-            icon=ICON_WEB
-        )
-        
-        # Add header option
-        wf.add_item(
-            title=f"Add Header to {button['name']}",
-            subtitle="↵ to add a header",
-            autocomplete=f"adh {button['name']} ",
-            valid=False,
-            icon=ICON_INFO
-        )
-        
-        # Add cookie option
-        wf.add_item(
-            title=f"Add Cookie to {button['name']}",
-            subtitle="↵ to add a cookie",
-            autocomplete=f"adc {button['name']} ",
-            valid=False,
-            icon=ICON_INFO
-        )
-        
-        # Add body option
-        wf.add_item(
-            title=f"Add POST Body to {button['name']}",
-            subtitle="↵ to add a POST body",
-            autocomplete=f"adb {button['name']} ",
-            valid=False,
-            icon=ICON_INFO
-        )
-        
-        # Set mode option
-        wf.add_item(
-            title=f"Set Mode for {button['name']}",
-            subtitle=f"Current mode: {mode}",
-            autocomplete=f"mode {button['name']} ",
-            valid=False,
-            icon=ICON_INFO
-        )
-        
-        # Remove button option
-        wf.add_item(
-            title=f"Remove {button['name']}",
-            subtitle="↵ to remove this button",
-            arg=f"remove {button['name']}",
-            valid=True,
-            icon=ICON_ERROR
-        )
-        
+def update_button_usage(wf, button_name):
+    """Update the last used timestamp for a button"""
+    buttons = load_web_buttons()
+    button = next((b for b in buttons if b['name'] == button_name), None)
+    if button:
+        button['last_used'] = time.time()
+        save_web_buttons(buttons)
+
+def load_web_buttons():
+    """Load web buttons from storage"""
+    buttons = get_stored_data(wf, 'web_buttons')
+    if buttons is None:
+        buttons = []
+        wf.logger.debug('No web buttons found in storage')
     else:
-        # Show regular list of matching buttons
+        wf.logger.debug(f'Loaded {len(buttons)} buttons from storage')
+    
+    # Ensure all buttons have a last_used field
+    for button in buttons:
+        if 'last_used' not in button:
+            button['last_used'] = 0  # Default to 0 for never used
+    return buttons
+
+def get_favicon_path(url):
+    """Get the path to the cached favicon for a URL"""
+    parsed = urlparse(url)
+    domain = parsed.netloc
+    if not domain:
+        return None
+    
+    # Create hash of domain to use as filename
+    filename = hashlib.md5(domain.encode('utf-8')).hexdigest() + '.ico'
+    cache_dir = os.path.join(wf.cachedir, 'favicons')
+    
+    # Ensure cache directory exists
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    
+    return os.path.join(cache_dir, filename)
+
+def fetch_favicon(url):
+    """Fetch and cache favicon for a URL"""
+    favicon_path = get_favicon_path(url)
+    if not favicon_path:
+        return None
+    
+    # If favicon is already cached and less than a week old, use it
+    if os.path.exists(favicon_path):
+        if time.time() - os.path.getmtime(favicon_path) < 7 * 24 * 60 * 60:
+            return favicon_path
+    
+    try:
+        parsed = urlparse(url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        
+        # Try common favicon locations
+        favicon_urls = [
+            urljoin(base_url, '/favicon.ico'),
+            urljoin(base_url, '/favicon.png'),
+            urljoin(base_url, '/apple-touch-icon.png'),
+            urljoin(base_url, '/apple-touch-icon-precomposed.png')
+        ]
+        
+        # Try to get favicon URL from HTML
+        try:
+            r = web.get(base_url)
+            r.raise_for_status()
+            html = r.text
+            
+            # Find link tags with rel containing icon
+            icon_pattern = r'<link[^>]+?rel=[\'"]((?:shortcut |apple-touch-)?icon)[\'"](.*?)>'
+            href_pattern = r'href=[\'"](.*?)[\'"]'
+            
+            for match in re.finditer(icon_pattern, html, re.IGNORECASE | re.DOTALL):
+                link_tag = match.group(0)
+                href_match = re.search(href_pattern, link_tag)
+                if href_match:
+                    href = href_match.group(1)
+                    favicon_urls.insert(0, urljoin(base_url, href))
+        except Exception as e:
+            wf.logger.debug(f"Error parsing HTML for favicon: {str(e)}")
+        
+        # Try each favicon URL until one works
+        for favicon_url in favicon_urls:
+            try:
+                wf.logger.debug(f"Trying favicon URL: {favicon_url}")
+                r = web.get(favicon_url, stream=True)
+                r.raise_for_status()
+                
+                # Check content type
+                content_type = r.headers.get('content-type', '').lower()
+                if not any(t in content_type for t in ['image/', 'icon', 'favicon']):
+                    continue
+                
+                with open(favicon_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=1024):
+                        f.write(chunk)
+                
+                # Verify file was written and has content
+                if os.path.exists(favicon_path) and os.path.getsize(favicon_path) > 0:
+                    return favicon_path
+                else:
+                    os.remove(favicon_path)
+            except Exception as e:
+                wf.logger.debug(f"Error fetching favicon from {favicon_url}: {str(e)}")
+                continue
+        
+    except Exception as e:
+        wf.logger.debug(f"Error in favicon fetch process for {url}: {str(e)}")
+    
+    return None
+
+def show_buttons(wf, query):
+    """Show list of web buttons"""
+    buttons = load_web_buttons()
+    
+    # Sort buttons by last_used timestamp (most recent first)
+    buttons.sort(key=lambda x: x.get('last_used', 0), reverse=True)
+    
+    # If no query, show all buttons sorted by last use
+    if not query:
+        if not buttons:
+            wf.add_item(
+                title="No web buttons found",
+                subtitle="Use 'wb add <url>' to create one",
+                valid=False,
+                icon=ICON_INFO
+            )
+            return
+            
         for button in buttons:
-            found_items = True
             subtitle_parts = []
             if button.get('headers'):
                 subtitle_parts.append(f"{len(button['headers'])} headers")
             if button.get('cookies'):
                 subtitle_parts.append(f"{len(button['cookies'])} cookies")
             if button.get('body'):
-                subtitle_parts.append("POST")
-            
+                subtitle_parts.append("POST body")
             mode = button.get('mode', 'browser')
-            subtitle_parts.append(f"mode: {mode}")
+            subtitle_parts.append(f"Mode: {mode}")
             
-            subtitle = f"URL: {button['url']}"
-            if subtitle_parts:
-                subtitle += f" ({', '.join(subtitle_parts)})"
-                
+            subtitle = f"{button['url']} ({', '.join(subtitle_parts)})"
+            
+            # Get favicon for the button
+            icon = fetch_favicon(button['url']) or ICON_WEB
+            
             wf.add_item(
                 title=button['name'],
                 subtitle=subtitle,
                 arg=f"open {button['name']}",
                 valid=True,
-                icon=ICON_WEB
+                icon=icon
             )
+        return
     
-    # If no buttons found and query looks like a URL, suggest adding it or opening it directly
-    if not found_items:
-        if query and looks_like_url(query):
-            # Option to open URL directly
-            wf.add_item(
-                title=f"Open URL: {query}",
-                subtitle="↵ to open this URL directly in your browser",
-                arg=f"open_url {query}",
-                valid=True,
-                icon=ICON_WEB
-            )
-            # Option to add as web button
-            item = wf.add_item(
-                title=f"Add as new web button: {query}",
-                subtitle="⌘↵ to add this URL as a new web button",
-                arg=f"add {query}",
-                valid=True,
-                icon=ICON_WEB
-            )
-            item.add_modifier('cmd', subtitle='Add this URL as a new web button')
-        else:
-            wf.add_item(
-                title="No matching web buttons found",
-                subtitle="Try 'wb add <url>' to create one",
-                valid=False,
-                icon=ICON_ERROR
-            )
+    # Handle URL-like queries
+    if looks_like_url(query):
+        wf.add_item(
+            title=f"Open URL: {query}",
+            subtitle="Press Enter to open in browser",
+            arg=f"open_url {query}",
+            valid=True,
+            icon=ICON_WEB
+        )
     
-    # Add command suggestions if query matches command prefixes
-    if query:
-        command_matches = get_command_suggestions(query)
-        if command_matches:
-            # Add a separator if we have other results
-            if found_items:
-                wf.add_item(
-                    title="──────────── Commands ────────────",
-                    subtitle="Available commands matching your search",
-                    valid=False,
-                    icon=ICON_INFO
-                )
-            # Add matching commands
-            for cmd, desc in command_matches:
-                wf.add_item(
-                    title=f"Command: {cmd}",
-                    subtitle=desc,
-                    autocomplete=f"{cmd} ",
-                    valid=False,
-                    icon=ICON_INFO
-                )
+    # Filter and score buttons based on query
+    query_lower = query.lower()
+    for button in buttons:
+        name = button['name'].lower()
+        url = button['url'].lower()
+        
+        if query_lower in name or query_lower in url:
+            subtitle_parts = []
+            if button.get('headers'):
+                subtitle_parts.append(f"{len(button['headers'])} headers")
+            if button.get('cookies'):
+                subtitle_parts.append(f"{len(button['cookies'])} cookies")
+            if button.get('body'):
+                subtitle_parts.append("POST body")
+            mode = button.get('mode', 'browser')
+            subtitle_parts.append(f"Mode: {mode}")
+            
+            subtitle = f"{button['url']} ({', '.join(subtitle_parts)})"
+            
+            # Get favicon for the button
+            icon = fetch_favicon(button['url']) or ICON_WEB
+            
+            wf.add_item(
+                title=button['name'],
+                subtitle=subtitle,
+                arg=f"open {button['name']}",
+                valid=True,
+                icon=icon
+            )
 
 def split_args_with_quotes(query):
     """Split query into args, preserving quoted strings as single arguments"""
@@ -559,35 +596,30 @@ def split_args_with_quotes(query):
 
 def main(wf):
     query = wf.args[0] if len(wf.args) > 0 else None
+    wf.logger.debug(f"Query: <{query}>")
     
-    if not query:
-        show_help(wf)
+    # Treat empty string or whitespace as no query
+    if not query or query.strip() == '':
+        show_buttons(wf, None)
         wf.send_feedback()
         return 0
     
-    try:
-        args = split_args_with_quotes(query)
-    except:
-        args = query.split()
+    command, args = get_command_parts(query)
     
-    command = args[0].lower()
-    
-    # List of valid commands that should not trigger button search
-    commands = ['add', 'adh', 'adc', 'adb', 'remove', 'mode']
-    
-    if command in commands:
-        if command == 'add':
-            show_add_command(wf, args[1:])
-        elif command == 'adh':
-            show_adh_command(wf, args[1:])
-        elif command == 'adc':
-            show_adc_command(wf, args[1:])
-        elif command == 'adb':
-            show_adb_command(wf, args[1:])
-        elif command == 'remove':
-            show_remove_command(wf, args[1:])
-        elif command == 'mode':
-            show_mode_command(wf, args)
+    if not command:
+        show_buttons(wf, query)
+    elif command == 'add':
+        show_add_command(wf, args)
+    elif command == 'adh':
+        show_adh_command(wf, args)
+    elif command == 'adc':
+        show_adc_command(wf, args)
+    elif command == 'adb':
+        show_adb_command(wf, args)
+    elif command == 'mode':
+        show_mode_command(wf, args)
+    elif command == 'remove':
+        show_remove_command(wf, args)
     else:
         show_buttons(wf, query)
     

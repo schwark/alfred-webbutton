@@ -1,4 +1,4 @@
-# Alfred Web Button Workflow
+# Alfred Web Button Workflow v1.0.3
 
 An Alfred workflow that allows you to create and activate custom web URLs with optional headers and cookies.
 
@@ -11,6 +11,16 @@ An Alfred workflow that allows you to create and activate custom web URLs with o
 ## Usage
 
 The workflow provides the following commands:
+
+### Viewing Web Buttons
+
+Simply type `wb` followed by one or two spaces to see all your web buttons, sorted by most recently used. Sometimes you may need to type two spaces to see the full list. You can also:
+- Search through your web buttons by typing part of their name
+- Open URLs directly by typing them after `wb`
+- See button details including headers, cookies, and mode
+- Access button options by selecting a single button
+
+Each button shows its website's favicon and is sorted by last use, with most recently used buttons appearing first.
 
 ### Adding a Web Button
 
@@ -138,6 +148,7 @@ wb workflow:noprereleases  # Exclude pre-release versions
 
 - Create custom web buttons with specific URLs
 - Capture URLs directly from Safari's active tab
+- Smart sorting of buttons by last use
 - Add custom headers for each web button
 - Add cookies for each web button (single or multiple)
 - Add POST bodies for API requests

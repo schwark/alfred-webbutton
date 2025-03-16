@@ -8,6 +8,7 @@ import webbrowser
 from urllib.parse import urlparse, urlencode
 from workflow import Workflow, web
 from common import get_stored_data, save_stored_data
+import time
 
 log = None
 
@@ -256,6 +257,10 @@ def open_button(args):
     if not button:
         print(f"Error: Button '{name}' not found")
         return 1
+    
+    # Update last used timestamp
+    button['last_used'] = time.time()
+    save_web_buttons(buttons)
     
     success = open_url(
         button['url'], 
