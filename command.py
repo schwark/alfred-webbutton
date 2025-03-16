@@ -84,24 +84,23 @@ def add_body(args):
 def open_url(url, headers=None, cookies=None, button_name=None, method='GET', body=None):
     """Open URL with optional headers, cookies, and POST body"""
     try:
-        # For cookies, we'll add them as URL parameters if possible
-        if cookies and method == 'GET':
-            parsed = urlparse(url)
-            if not parsed.query:
-                # Only add cookies as parameters if there are no existing parameters
-                url = url + '?' + urlencode(cookies)
+        # Initialize headers dictionary if None
+        headers = headers or {}
         
-        # For headers, we'll use workflow.web
+        # If there are cookies, add them to the Cookie header
+        if cookies:
+            cookie_string = '; '.join(f"{k}={v}" for k, v in cookies.items())
+            headers['Cookie'] = cookie_string
+        
+        # Make the request with proper headers including cookies
         if method == 'POST':
-            r = web.post(url, headers=headers, data=body)
+            r = web.post(url, headers=headers, data=body, allow_redirects=True)
         else:
-            if headers:
-                r = web.get(url, headers=headers)
-            else:
-                # Just validate the URL exists
-                r = web.get(url)
+            r = web.get(url, headers=headers, allow_redirects=True)
         
-        r.raise_for_status()
+        # Only raise for 4xx and 5xx status codes
+        if r.status_code >= 400:
+            r.raise_for_status()
         
         # Check the mode to determine how to handle the URL
         mode = get_mode(button_name) if button_name else 'browser'
@@ -111,7 +110,21 @@ def open_url(url, headers=None, cookies=None, button_name=None, method='GET', bo
             webbrowser.open(url)
             print(f"Opened URL in browser: {url}")
         else:  # quiet mode
-            print(f"URL response ({r.status_code}): {r.text[:200]}")
+            content_type = r.headers.get('content-type', '').lower()
+            if 'html' in content_type:
+                # Try to extract title from HTML
+                import re
+                title_match = re.search(r'<title[^>]*>(.*?)</title>', r.text, re.IGNORECASE | re.DOTALL)
+                if title_match:
+                    print(f"Page Title ({r.status_code}): {title_match.group(1).strip()}")
+                else:
+                    print(f"HTML response ({r.status_code}): No title found")
+            else:
+                # For non-HTML responses, show the first 200 characters
+                print(f"Response ({r.status_code}): {r.text[:200]}")
+            
+            if r.status_code in (301, 302, 303, 307, 308):
+                print(f"Redirect location: {r.headers.get('location')}")
         
         return True
     except Exception as e:
