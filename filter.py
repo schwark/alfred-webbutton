@@ -577,9 +577,32 @@ def show_help(wf):
         valid=False,
         icon=ICON_INFO
     )
+    # Add update commands
+    wf.add_item(
+        title='Check for Updates',
+        subtitle='wb workflow:update',
+        valid=False,
+        icon=ICON_INFO
+    )
+    wf.add_item(
+        title='Toggle Auto Update',
+        subtitle='wb workflow:autoupdate / workflow:noautoupdate',
+        valid=False,
+        icon=ICON_INFO
+    )
+    wf.add_item(
+        title='Toggle Pre-releases',
+        subtitle='wb workflow:prereleases / workflow:noprereleases',
+        valid=False,
+        icon=ICON_INFO
+    )
 
 if __name__ == '__main__':
-    wf = Workflow(update_settings={
-        'github_slug': 'schwark/alfred-webbutton'
-    })
+    wf = Workflow(
+        update_settings={
+            'github_slug': 'schwark/alfred-webbutton',
+            'frequency': 1  # Check for updates daily
+        },
+        help_url='https://github.com/schwark/alfred-webbutton'
+    )
     sys.exit(wf.run(main)) 
